@@ -1,0 +1,178 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "name": {
+            "defaultValue": "AlchemistsBotQnA?",
+            "type": "string"
+        },
+        "appName": {
+            "defaultValue": "~Enter the same name as QnA Name~", 
+            "type": "string"
+        },
+        "sku": {
+            "defaultValue": "S0",
+            "type": "string"
+        },
+        "location": {
+            "defaultValue": "westus",
+            "type": "string"
+        },
+        "location2": {
+            "defaultValue": "eastus",            
+            "type": "string"
+        },
+        "location3": {
+            "defaultValue": "eastus",
+            "type": "string"
+        },
+        "azureSearchLocation": {
+            "defaultValue": "eastus",
+            "type": "string"
+        },
+        "azureSearchSku": {
+            "defaultValue": "basic",
+            "type": "string"
+        },
+        "searchHostingMode": {
+            "defaultValue": "Default",
+            "type": "string"
+        }
+    },
+    "variables": {
+        "puredAzureSearchName": "[replace(parameters('appName'), '-', '')]",
+        "normalizedAzureSearchName": "[if(greater(length(variables('puredAzureSearchName')), 40), substring(variables('puredAzureSearchName'), sub(length(variables('puredAzureSearchName')), 40), 40) , variables('puredAzureSearchName'))]",
+        "azureSearchName": "[toLower(concat(variables('normalizedAzureSearchName'), '-as', uniqueString(resourceGroup().id, variables('normalizedAzureSearchName'), parameters('azureSearchSku'), parameters('azureSearchLocation'), parameters('searchHostingMode'))))]",
+        "appInsightsName": "[concat(parameters('name'), '-ai')]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.CognitiveServices/accounts",
+            "kind": "QnAMaker",
+            "name": "[parameters('name')]",
+            "apiVersion": "2017-04-18",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "[parameters('sku')]"
+            },
+            "properties": {
+                "apiProperties": {
+                    "qnaRuntimeEndpoint": "[concat('https://',reference(resourceId('Microsoft.Web/sites', parameters('appName'))).hostNames[0])]"
+                },
+                "customSubDomainName": "[parameters('name')]"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/Sites', parameters('appName'))]",
+                "[resourceId('Microsoft.Search/searchServices/', variables('azureSearchName'))]",
+                "[resourceId('microsoft.insights/components/', variables('appInsightsName'))]"
+            ],
+            "tags": {
+                "Owner": "DCC_Alchemists"
+            }
+        },
+        {
+            "name": "[variables('azureSearchName')]",
+            "type": "Microsoft.Search/searchServices",
+            "apiVersion": "2015-08-19",
+            "location": "[parameters('azureSearchLocation')]",
+            "tags": {
+                "Owner": "DCC_Alchemists"
+            },
+            "properties": {
+                "replicaCount": 1,
+                "partitionCount": 1,
+                "hostingMode": "[parameters('searchHostingMode')]"
+            },
+            "sku": {
+                "name": "[parameters('azureSearchSku')]"
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2016-08-01",
+            "name": "[parameters('appName')]",
+            "location": "[parameters('location3')]",
+            "properties": {
+                "enabled": true,
+                "name": "[parameters('appName')]",
+                "serverFarmId": "[concat('/subscriptions/', subscription().SubscriptionId,'/resourcegroups/', resourceGroup().name, '/providers/Microsoft.Web/serverfarms/', parameters('name'))]",
+                "hostingEnvironment": ""
+            },
+            "tags": {
+                "[concat('hidden-related:', '/subscriptions/', subscription().SubscriptionId,'/resourcegroups/', resourceGroup().name, '/providers/Microsoft.Web/serverfarms/', parameters('name'))]": "empty",
+                "Owner": "DCC_Alchemists"
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Web/serverfarms/', parameters('name'))]"
+            ],
+            "resources": [
+                {
+                    "name": "[variables('appInsightsName')]",
+                    "type": "microsoft.insights/components",
+                    "kind": "web",
+                    "apiVersion": "2015-05-01",
+                    "location": "[parameters('location2')]",
+                    "tags": {
+                        "[concat('hidden-link:', resourceId('Microsoft.Web/sites/', parameters('appName')))]": "Resource",
+                        "Owner": "DCC_Alchemists"
+                    },
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/sites/', parameters('appName'))]"
+                    ],
+                    "properties": {
+                        "ApplicationId": "[parameters('appName')]"
+                    }
+                },
+                {
+                    "apiVersion": "2015-08-01",
+                    "name": "appsettings",
+                    "type": "config",
+                    "dependsOn": [
+                        "[resourceId('Microsoft.Web/Sites', parameters('appName'))]",
+                        "[resourceId('Microsoft.Search/searchServices/', variables('azureSearchName'))]"
+                    ],
+                    "properties": {
+                        "AzureSearchName": "[variables('azureSearchName')]",
+                        "AzureSearchAdminKey": "[listAdminKeys(resourceId('Microsoft.Search/searchServices/', variables('azureSearchName')), '2015-08-19').primaryKey]",
+                        "UserAppInsightsKey": "[reference(resourceId('microsoft.insights/components/', variables('appInsightsName')), '2015-05-01').InstrumentationKey]",
+                        "UserAppInsightsName": "[variables('appInsightsName')]",
+                        "UserAppInsightsAppId": "[reference(resourceId('microsoft.insights/components/', variables('appInsightsName')), '2015-05-01').AppId]",
+                        "PrimaryEndpointKey": "[concat(parameters('appName'), '-PrimaryEndpointKey')]",
+                        "SecondaryEndpointKey": "[concat(parameters('appName'), '-SecondaryEndpointKey')]",
+                        "DefaultAnswer": "No good match found in KB.",
+                        "QNAMAKER_EXTENSION_VERSION": "latest"
+                    },
+                    "tags": {
+                        "Owner": "DCC_Alchemists"
+                    }
+                }
+            ]
+        },
+        {
+            "apiVersion": "2016-09-01",
+            "name": "[parameters('name')]",
+            "type": "Microsoft.Web/serverfarms",
+            "location": "[parameters('location3')]",
+            "properties": {
+                "name": "[parameters('name')]",
+                "workerSizeId": "0",
+                "reserved": false,
+                "numberOfWorkers": "1",
+                "hostingEnvironment": ""
+            },
+            "sku": {
+                "Tier": "Standard",
+                "Name": "S1"
+            },
+            "tags": {
+                "Owner": "DCC_Alchemists"
+            }
+        }
+    ],
+    "outputs": {
+        "qnaRuntimeEndpoint": {
+            "type": "string",
+            "value": "[concat('https://',reference(resourceId('Microsoft.Web/sites', parameters('appName'))).hostNames[0])]"
+        }
+    }
+}
